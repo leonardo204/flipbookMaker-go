@@ -1,0 +1,32 @@
+
+# Claude Code runtime
+.claude/db/context.db
+.claude/.ctx_state
+.claude/.backup-*
+.claude/.ralph_state
+.claude/.hud_cache
+.claude/.hook_feedback
+.claude/.project_root
+.claude/.messenger_enabled
+
+# Wails build outputs
+build/bin/
+build/windows/installer/tmp/
+frontend/dist/
+frontend/node_modules/
+frontend/wailsjs/
+frontend/tsconfig.tsbuildinfo
+frontend/package.json.md5
+
+# Release artefacts
+dist/
+
+# Go
+*.test
+*.out
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
