@@ -22,6 +22,33 @@ PATH_WITH_GO="$HOME/go/bin:$PATH"
 log() { printf "\033[1;36m▸\033[0m %s\n" "$*"; }
 die() { printf "\033[1;31m✗\033[0m %s\n" "$*" >&2; exit 1; }
 
+# minisign 비밀번호를 한 번만 입력하고 자동 서명. MINISIGN_PASSWORD가
+# 있으면 expect로 stdin 주입, 없으면 인터랙티브 폴백.
+sign_minisign() {
+  local file="$1"
+  local trusted="$2"
+  if [[ -n "${MINISIGN_PASSWORD:-}" ]] && command -v expect >/dev/null; then
+    MINISIGN_PASSWORD="$MINISIGN_PASSWORD" \
+    MINISIGN_SECRET_KEY="$MINISIGN_SECRET_KEY" \
+    expect -f - "$file" "$trusted" <<'EXPECT' >/dev/null
+log_user 0
+set timeout 30
+set file [lindex $argv 0]
+set trusted [lindex $argv 1]
+spawn minisign -S -s $env(MINISIGN_SECRET_KEY) -t $trusted -m $file
+expect {
+  -re "Password:" { send "$env(MINISIGN_PASSWORD)\r"; exp_continue }
+  eof
+}
+catch wait result
+exit [lindex $result 3]
+EXPECT
+    [[ -f "${file}.minisig" ]] || die "minisign 서명 실패: $file (비밀번호 확인)"
+  else
+    minisign -S -s "$MINISIGN_SECRET_KEY" -t "$trusted" -m "$file"
+  fi
+}
+
 VERSION="${VERSION:-}"
 SKIP_MAC=0
 SKIP_WIN=0
@@ -82,12 +109,7 @@ if [[ "$SKIP_MAC" -eq 0 ]]; then
   tar -C "$BIN" -czf "$DIST/$TAR_NAME" FlipMD.app
 
   log "[macOS] minisign sign"
-  echo "${MINISIGN_PASSWORD:-}" | minisign -S -s "$MINISIGN_SECRET_KEY" \
-    -t "FlipMD ${VERSION} darwin-aarch64" \
-    -m "$DIST/$TAR_NAME" >/dev/null 2>&1 || \
-    minisign -S -s "$MINISIGN_SECRET_KEY" \
-      -t "FlipMD ${VERSION} darwin-aarch64" \
-      -m "$DIST/$TAR_NAME"
+  sign_minisign "$DIST/$TAR_NAME" "FlipMD ${VERSION} darwin-aarch64"
 
   SIG_MAC=$(base64 -i "$DIST/${TAR_NAME}.minisig" | tr -d '\n')
   URL_MAC="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${TAR_NAME}"
@@ -118,12 +140,7 @@ if [[ "$SKIP_WIN" -eq 0 ]]; then
   log "[Windows] zip(installer) -> $ZIP_NAME"
   ( cd "$BIN" && zip -j -q "$DIST/$ZIP_NAME" "$(basename "$INSTALLER")" )
   log "[Windows] minisign sign (installer)"
-  echo "${MINISIGN_PASSWORD:-}" | minisign -S -s "$MINISIGN_SECRET_KEY" \
-    -t "FlipMD ${VERSION} windows-x86_64" \
-    -m "$DIST/$ZIP_NAME" >/dev/null 2>&1 || \
-    minisign -S -s "$MINISIGN_SECRET_KEY" \
-      -t "FlipMD ${VERSION} windows-x86_64" \
-      -m "$DIST/$ZIP_NAME"
+  sign_minisign "$DIST/$ZIP_NAME" "FlipMD ${VERSION} windows-x86_64"
   SIG_WIN=$(base64 -i "$DIST/${ZIP_NAME}.minisig" | tr -d '\n')
   URL_WIN="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${ZIP_NAME}"
 
@@ -132,12 +149,7 @@ if [[ "$SKIP_WIN" -eq 0 ]]; then
   log "[Windows] zip(portable) -> $ZIP_PORT"
   ( cd "$BIN" && zip -j -q "$DIST/$ZIP_PORT" "FlipMD.exe" )
   log "[Windows] minisign sign (portable)"
-  echo "${MINISIGN_PASSWORD:-}" | minisign -S -s "$MINISIGN_SECRET_KEY" \
-    -t "FlipMD ${VERSION} windows-x86_64-portable" \
-    -m "$DIST/$ZIP_PORT" >/dev/null 2>&1 || \
-    minisign -S -s "$MINISIGN_SECRET_KEY" \
-      -t "FlipMD ${VERSION} windows-x86_64-portable" \
-      -m "$DIST/$ZIP_PORT"
+  sign_minisign "$DIST/$ZIP_PORT" "FlipMD ${VERSION} windows-x86_64-portable"
   SIG_WIN_PORT=$(base64 -i "$DIST/${ZIP_PORT}.minisig" | tr -d '\n')
   URL_WIN_PORT="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${ZIP_PORT}"
 fi
