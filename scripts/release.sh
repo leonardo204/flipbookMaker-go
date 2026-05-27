@@ -22,31 +22,32 @@ PATH_WITH_GO="$HOME/go/bin:$PATH"
 log() { printf "\033[1;36m▸\033[0m %s\n" "$*"; }
 die() { printf "\033[1;31m✗\033[0m %s\n" "$*" >&2; exit 1; }
 
-# minisign 비밀번호를 한 번만 입력하고 자동 서명. MINISIGN_PASSWORD가
-# 있으면 expect로 stdin 주입, 없으면 인터랙티브 폴백.
+# Tauri 시절 생성한 키는 base64로 한 번 더 wrap된 rsign 형식이라 표준
+# minisign / rsign2 CLI에서 못 읽는다. Tauri CLI signer가 이 형식을
+# 그대로 처리하므로 release flow는 tauri signer를 사용한다.
+#
+# 산출물은 `<file>.sig` (minisign 형식의 표준 .sig). 호출자가 base64로
+# wrap해 latest.json에 넣을 때 우리 verify.go가 base64 한 단계를 풀고
+# 처리하므로 호환된다. 기존 코드와의 호환을 위해 `.sig`를 `.minisig`로
+# rename.
+TAURI_CLI_DIR="${TAURI_CLI_DIR:-/Users/zerolive/work/flipbookMaker}"
+
 sign_minisign() {
   local file="$1"
-  local trusted="$2"
-  if [[ -n "${MINISIGN_PASSWORD:-}" ]] && command -v expect >/dev/null; then
-    MINISIGN_PASSWORD="$MINISIGN_PASSWORD" \
-    MINISIGN_SECRET_KEY="$MINISIGN_SECRET_KEY" \
-    expect -f - "$file" "$trusted" <<'EXPECT' >/dev/null
-log_user 0
-set timeout 30
-set file [lindex $argv 0]
-set trusted [lindex $argv 1]
-spawn minisign -S -s $env(MINISIGN_SECRET_KEY) -t $trusted -m $file
-expect {
-  -re "Password:" { send "$env(MINISIGN_PASSWORD)\r"; exp_continue }
-  eof
-}
-catch wait result
-exit [lindex $result 3]
-EXPECT
-    [[ -f "${file}.minisig" ]] || die "minisign 서명 실패: $file (비밀번호 확인)"
-  else
-    minisign -S -s "$MINISIGN_SECRET_KEY" -t "$trusted" -m "$file"
-  fi
+  local _trusted="$2"  # tauri signer는 trusted comment 인자 미지원 — 무시
+  [[ -d "$TAURI_CLI_DIR/node_modules/@tauri-apps/cli" ]] || \
+    die "tauri CLI signer를 못 찾음: $TAURI_CLI_DIR (TAURI_CLI_DIR로 경로 지정)"
+  local out
+  out=$(
+    cd "$TAURI_CLI_DIR" && \
+    npx tauri signer sign \
+      -f "$MINISIGN_SECRET_KEY" \
+      -p "${MINISIGN_PASSWORD:-}" \
+      "$file" 2>&1
+  ) || die "tauri signer 서명 실패: $file
+$out"
+  [[ -f "${file}.sig" ]] || die "${file}.sig 생성 실패"
+  mv "${file}.sig" "${file}.minisig"
 }
 
 VERSION="${VERSION:-}"
@@ -70,8 +71,15 @@ done
 [[ -n "${MINISIGN_SECRET_KEY:-}" ]] || die "MINISIGN_SECRET_KEY (path) is required for signing"
 command -v minisign >/dev/null || die "minisign not installed (brew install minisign)"
 
-PUBKEY_FILE="${MINISIGN_PUBLIC_KEY:-${MINISIGN_SECRET_KEY%.key}.pub}"
-[[ -f "$PUBKEY_FILE" ]] || die "minisign pubkey not found at $PUBKEY_FILE — set MINISIGN_PUBLIC_KEY"
+if [[ -n "${MINISIGN_PUBLIC_KEY:-}" ]]; then
+  PUBKEY_FILE="$MINISIGN_PUBLIC_KEY"
+elif [[ -f "${MINISIGN_SECRET_KEY}.pub" ]]; then
+  PUBKEY_FILE="${MINISIGN_SECRET_KEY}.pub"          # minisign 기본 (foo.key + foo.key.pub)
+elif [[ -f "${MINISIGN_SECRET_KEY%.key}.pub" ]]; then
+  PUBKEY_FILE="${MINISIGN_SECRET_KEY%.key}.pub"     # 일부 도구 (foo.key + foo.pub)
+else
+  die "minisign pubkey not found near $MINISIGN_SECRET_KEY — set MINISIGN_PUBLIC_KEY"
+fi
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
