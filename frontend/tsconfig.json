@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2021",
+    "useDefineForClassFields": true,
+    "lib": ["ES2021", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "paths": {
+      "@tauri-apps/api/core": ["./src/shims/tauri/api-core.ts"],
+      "@tauri-apps/api/event": ["./src/shims/tauri/api-event.ts"],
+      "@tauri-apps/api/path": ["./src/shims/tauri/api-path.ts"],
+      "@tauri-apps/api/app": ["./src/shims/tauri/api-app.ts"],
+      "@tauri-apps/plugin-fs": ["./src/shims/tauri/plugin-fs.ts"],
+      "@tauri-apps/plugin-dialog": ["./src/shims/tauri/plugin-dialog.ts"],
+      "@tauri-apps/plugin-opener": ["./src/shims/tauri/plugin-opener.ts"],
+      "@tauri-apps/plugin-process": ["./src/shims/tauri/plugin-process.ts"],
+      "@tauri-apps/plugin-updater": ["./src/shims/tauri/plugin-updater.ts"]
+    }
+  },
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/**/*.spec.ts", "src/**/*.spec.tsx"]
+}
