@@ -34,7 +34,12 @@ cd /Users/zerolive/work/flipMd-Go && \
 `.env` 내용 (gitignore됨):
 ```bash
 MINISIGN_PASSWORD=''
+APPLE_ID='<Developer Program 등록된 Apple ID>'
+APPLE_APP_PASSWORD='xxxx-xxxx-xxxx-xxxx'  # appleid.apple.com → 앱 암호
+APPLE_TEAM_ID='XU8HS9JUTS'
 ```
+
+app-specific password 발급: https://appleid.apple.com → 로그인 및 보안 → 앱 암호. release-flipmd.sh가 첫 실행 시 keychain profile(FLIPMD_NOTARY)을 자동 등록한다.
 
 ---
 
@@ -77,16 +82,19 @@ cd /Users/zerolive/work/flipbookMaker && \
 1. wails build darwin/arm64 + ldflags appVersion=X.Y.Z
 2. iconfile.icns override (build/darwin/icon.icns → .app/Contents/Resources)
 3. codesign (Developer ID Application: YONGSUB LEE)
-4. tar -czf FlipMD_X.Y.Z_aarch64.app.tar.gz
-5. tauri signer sign → .sig → .minisig
-6. wails build windows/amd64 -nsis
-7. zip (installer .exe → FlipMD_X.Y.Z_x64-setup.nsis.zip)
-8. tauri signer + .minisig
-9. zip (portable .exe → FlipMD_X.Y.Z_x64-portable.zip)
-10. tauri signer + .minisig
-11. latest.json 생성 (3 platforms: darwin-aarch64, windows-x86_64, windows-x86_64-portable)
-12. gh release create + 7개 자산 upload
+4. notarize: ditto → notarytool submit --wait (Accepted까지 2~5분) → stapler staple
+5. tar -czf FlipMD_X.Y.Z_aarch64.app.tar.gz   (← stapled .app 포함)
+6. tauri signer sign → .sig → .minisig
+7. wails build windows/amd64 -nsis
+8. zip (installer .exe → FlipMD_X.Y.Z_x64-setup.nsis.zip)
+9. tauri signer + .minisig
+10. zip (portable .exe → FlipMD_X.Y.Z_x64-portable.zip)
+11. tauri signer + .minisig
+12. latest.json 생성 (3 platforms: darwin-aarch64, windows-x86_64, windows-x86_64-portable)
+13. gh release create + 7개 자산 upload
 ```
+
+`APPLE_NOTARY_PROFILE` env가 비어 있으면 4단계 스킵 (Gatekeeper 경고 발생).
 
 ---
 
@@ -164,19 +172,24 @@ cd /Users/zerolive/work/flipbookMaker && \
 
 ---
 
-## 노타라이즈 (선택, 정식 배포 시 권장)
+## 노타라이즈 — 이미 자동화됨 (v1.3.12부터)
 
-자동 업데이트 자체는 노타라이즈 없이도 동작하지만, **첫 설치 시 사용자가 우클릭 → 열기**로 Gatekeeper 우회해야 합니다. 정식 배포에는:
+release.sh 4단계가 자동으로 처리:
+1. `.app` → 임시 `.zip` (ditto, keepParent)
+2. `xcrun notarytool submit --wait` (Apple 서버 검증, Accepted까지 보통 2~5분)
+3. `xcrun stapler staple FlipMD.app` (티켓을 .app에 직접 박음)
+4. `spctl -a -vv` 결과 확인 (`source=Notarized Developer ID` 출력되어야 정상)
 
+이후 tar.gz로 묶기 때문에 사용자는 **다운로드 → 더블클릭으로 즉시 실행** 가능 (Gatekeeper 우회 불필요).
+
+자격증명은 `.env`에 적힌 APPLE_ID / APPLE_APP_PASSWORD / APPLE_TEAM_ID를 release-flipmd.sh가 첫 실행 시 keychain(FLIPMD_NOTARY)에 자동 등록. 다음 release부터는 keychain만 사용 — `.env`의 Apple 항목은 백업용.
+
+직접 등록도 가능:
 ```sh
-# 1회 등록
 xcrun notarytool store-credentials FLIPMD_NOTARY \
-  --apple-id you@example.com \
-  --team-id XU8HS9JUTS \
+  --apple-id "<Developer ID 등록된 Apple ID>" \
+  --team-id "XU8HS9JUTS" \
   --password "xxxx-xxxx-xxxx-xxxx"
-
-# release.sh 완료 후
-xcrun notarytool submit dist/FlipMD_X.Y.Z_aarch64.app.tar.gz \
-  --keychain-profile FLIPMD_NOTARY --wait
-# stapler 단계는 .app 풀어서 staple 후 재압축 — 별도 스크립트 권장
 ```
+
+**HTTP 401 / Invalid credentials**: Apple ID가 그 Team의 Developer Program 멤버가 아니거나 app-specific password 오타. 멤버 권한 + 새 password 재발급으로 해결.

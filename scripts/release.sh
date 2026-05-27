@@ -112,6 +112,28 @@ if [[ "$SKIP_MAC" -eq 0 ]]; then
     log "[macOS] APPLE_SIGNING_IDENTITY unset — skipping Developer ID re-sign (ad-hoc only)"
   fi
 
+  # ── notarize + staple (옵션) ────────────────────────────────────────
+  # APPLE_NOTARY_PROFILE이 있으면 Apple notarization 진행 + 티켓을 .app에
+  # staple. 이후 tar.gz로 묶으면 stapled .app이 포함되어 사용자는
+  # quarantine 우회 없이 바로 실행 가능.
+  if [[ -n "${APPLE_NOTARY_PROFILE:-}" ]]; then
+    log "[macOS] notarize via profile $APPLE_NOTARY_PROFILE (수 분 소요)"
+    NOTARY_ZIP="$BIN/FlipMD-notarize-$$.zip"
+    /usr/bin/ditto -c -k --keepParent "$BIN/FlipMD.app" "$NOTARY_ZIP"
+    if ! xcrun notarytool submit "$NOTARY_ZIP" \
+           --keychain-profile "$APPLE_NOTARY_PROFILE" --wait; then
+      rm -f "$NOTARY_ZIP"
+      die "notarization 실패. xcrun notarytool log <submission-id> --keychain-profile $APPLE_NOTARY_PROFILE 로 사유 확인"
+    fi
+    rm -f "$NOTARY_ZIP"
+    log "[macOS] stapler staple"
+    xcrun stapler staple "$BIN/FlipMD.app" >/dev/null || \
+      die "stapler staple 실패"
+    /usr/sbin/spctl -a -vv "$BIN/FlipMD.app" 2>&1 | head -3
+  else
+    log "[macOS] APPLE_NOTARY_PROFILE unset — skipping notarization (Gatekeeper 경고 발생 가능)"
+  fi
+
   TAR_NAME="FlipMD_${VERSION}_aarch64.app.tar.gz"
   log "[macOS] tar -> $TAR_NAME"
   tar -C "$BIN" -czf "$DIST/$TAR_NAME" FlipMD.app

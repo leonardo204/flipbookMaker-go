@@ -42,5 +42,25 @@ export MINISIGN_SECRET_KEY="${MINISIGN_SECRET_KEY:-$HOME/.tauri/flipmd.key}"
 export MINISIGN_PASSWORD
 export APPLE_SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:-Developer ID Application: YONGSUB LEE (XU8HS9JUTS)}"
 export RELEASE_NOTES="${RELEASE_NOTES:-FlipMD release}"
+export APPLE_NOTARY_PROFILE="${APPLE_NOTARY_PROFILE:-FLIPMD_NOTARY}"
+
+# Apple Notarization profile 자동 등록.
+# .env에 APPLE_ID / APPLE_APP_PASSWORD / APPLE_TEAM_ID가 있으면 keychain에
+# 한 번만 저장. 이후엔 keychain profile만 사용 (재실행 시 자동 스킵).
+if ! xcrun notarytool history --keychain-profile "$APPLE_NOTARY_PROFILE" >/dev/null 2>&1; then
+  if [[ -n "${APPLE_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" && -n "${APPLE_TEAM_ID:-}" ]]; then
+    echo "▸ notarytool store-credentials $APPLE_NOTARY_PROFILE"
+    xcrun notarytool store-credentials "$APPLE_NOTARY_PROFILE" \
+      --apple-id "$APPLE_ID" \
+      --team-id "$APPLE_TEAM_ID" \
+      --password "$APPLE_APP_PASSWORD" >/dev/null
+  else
+    echo "⚠ APPLE_NOTARY_PROFILE($APPLE_NOTARY_PROFILE) 미등록. .env에" >&2
+    echo "  APPLE_ID / APPLE_APP_PASSWORD / APPLE_TEAM_ID를 채우거나" >&2
+    echo "  xcrun notarytool store-credentials로 직접 등록하세요." >&2
+    echo "  → 노타라이즈 단계 스킵 (Gatekeeper 경고 발생)" >&2
+    unset APPLE_NOTARY_PROFILE
+  fi
+fi
 
 exec scripts/release.sh "$@"
