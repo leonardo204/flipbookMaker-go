@@ -1,103 +1,151 @@
-# Release Pipeline — Tauri-호환 자동 업데이트 빌드/배포 가이드
+# Release Pipeline — 검증된 릴리즈 절차 (Tauri-호환 자동 업데이트)
 
-Go updater (`internal/updater`)는 Tauri updater 매니페스트 포맷을 그대로 사용합니다. `scripts/release.sh`가 macOS + Windows 빌드, minisign 서명, `latest.json` 생성을 한 번에 수행합니다.
-
----
-
-## 사전 요구 사항 (macOS 빌드 머신)
-
-| 도구 | 설치 | 비고 |
-|------|------|------|
-| Go 1.23+ | `brew install go` | wails build 의존 |
-| Wails v2 CLI | `go install github.com/wailsapp/wails/v2/cmd/wails@latest` | `$HOME/go/bin/wails` |
-| Node.js 18+ | `brew install node` | frontend 빌드 |
-| minisign | `brew install minisign` | 서명 |
-| makensis | `brew install makensis` | Windows NSIS 인스톨러 |
-| gh CLI (옵션) | `brew install gh` | `--upload` 자동화 |
-
-Windows EV 코드사인 인증서가 있다면 `project.nsi`의 `!finalize` 라인을 켜고 `signtool` 경로를 잡아주세요.
+> 사용자가 "릴리즈 해줘" / "vX.Y.Z 발행" 등을 요청하면 **반드시 이 문서대로 진행**한다.
+> 검증 완료 일자: 2026-05-27 (v1.3.11 발행)
 
 ---
 
-## 환경 변수
+## 한 줄 명령 (이게 전부)
 
 ```sh
-export VERSION=1.3.11                                    # 필수
-export MINISIGN_SECRET_KEY=~/.flipmd/minisign.key        # 필수 — 기존 flipbookMaker 키
-export MINISIGN_PUBLIC_KEY=~/.flipmd/minisign.pub        # 옵션 (default: .key 이름 기반)
-export MINISIGN_PASSWORD=...                             # 옵션 (생략 시 대화식 입력)
-export APPLE_SIGNING_IDENTITY="Developer ID Application: YONGSUB LEE (XU8HS9JUTS)"
-export GH_RELEASE=1                                      # gh release create + upload
-export RELEASE_NOTES="버그 수정 및 안정성 개선"          # latest.json notes 필드
+cd /Users/zerolive/work/flipMd-Go && \
+  RELEASE_NOTES="<릴리즈 노트>" \
+  scripts/release-flipmd.sh --version <X.Y.Z> --upload
 ```
 
-`MINISIGN_SECRET_KEY`는 **Tauri 시절 만들어 둔 키와 동일**해야 자동 업데이트가 작동합니다.
-`main.go`의 `updaterPubKey` 상수와 키 짝이 맞지 않으면 클라이언트가 서명 검증을 거절합니다.
+비대화식 — `.env`에서 모든 비밀을 자동 로드, Claude Code inline bash에서도 동작.
+실행 1~2분, 완료 시 `https://github.com/leonardo204/flipbookMaker-go/releases/tag/v<X.Y.Z>`.
 
 ---
 
-## 실행
+## 사전 1회 셋업 (이미 되어 있다면 스킵)
 
+| 항목 | 상태 확인 | 설치 / 등록 |
+|------|----------|-------------|
+| Go 1.23+ | `go version` | `brew install go` |
+| Node 18+ | `node -v` | `brew install node` |
+| Wails CLI v2.12+ | `wails version` | `go install github.com/wailsapp/wails/v2/cmd/wails@latest` |
+| `makensis` (Windows 빌드용) | `which makensis` | `brew install makensis` |
+| `gh` CLI 인증 | `gh auth status` | `gh auth login` |
+| **Tauri CLI (`tauri signer`)** | `ls /Users/zerolive/work/flipbookMaker/node_modules/@tauri-apps/cli` | flipbookMaker repo에 `npm install` |
+| **Tauri 시절 minisign 키** | `ls ~/.tauri/flipmd.key*` | (보관 중) |
+| **`.env` 파일** | `cat .env` | 아래 내용으로 작성 |
+
+`.env` 내용 (gitignore됨):
+```bash
+MINISIGN_PASSWORD=''
+```
+
+---
+
+## 절대 함정 — 처음 시도하면 무조건 막힘
+
+### 함정 1 — Tauri 키 형식
+
+`~/.tauri/flipmd.key`는 base64로 한 번 더 wrap된 **rsign 형식**이라 표준 `minisign` / `rsign2` CLI에서 `"Missing encoded key in secret key"` 또는 `"Wrong password for that key"` 오류 발생.
+
+**해결**: `scripts/release.sh`가 `tauri signer` (flipbookMaker의 `node_modules/@tauri-apps/cli`) 호출. 이미 작성 완료 — 다른 도구 시도 금지.
+
+### 함정 2 — 비밀번호는 **빈 string**
+
+사용자가 다른 비번을 알려줘도 무시. Tauri 키는 빈 비밀번호로 보호됨. `.env`의 `MINISIGN_PASSWORD=''`가 정답.
+
+검증 방법:
 ```sh
-# macOS + Windows 모두 빌드, latest.json 생성, gh release upload까지
-scripts/release.sh --version 1.3.11 --upload
-
-# macOS만
-scripts/release.sh --version 1.3.11 --skip-windows
-
-# Windows만
-scripts/release.sh --version 1.3.11 --skip-mac
+cd /Users/zerolive/work/flipbookMaker && \
+  npx tauri signer sign -f ~/.tauri/flipmd.key -p '' /tmp/dummy.txt
+# "Your file was signed successfully" 나오면 OK
 ```
 
-산출물은 `dist/` 폴더에 모입니다.
+### 함정 3 — env var "" 와 CLI 인자 "" 가 다름
+
+`TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""` env var는 "unset"으로 처리되어 다른 fallback로 빠짐 → wrong password. **반드시 CLI 인자 `-p "$MINISIGN_PASSWORD"` 형식으로** 전달. release.sh가 이미 그렇게 함.
+
+### 함정 4 — `${VAR:-}` vs `${VAR+set}`
+
+빈 비밀번호가 valid이므로 `[[ -z "${MINISIGN_PASSWORD:-}" ]]` 검사는 거짓 트리거. `${VAR+set}` 으로 unset 여부만 검사. release-flipmd.sh 이미 그렇게 함.
+
+### 함정 5 — Claude Code inline bash는 인터랙티브 입력 불가
+
+`!` prefix로 실행되는 bash는 stdin 없음. `read -sp`는 EOF로 즉시 종료. → `.env` 자동 로드가 유일한 자동화 길. (외부 터미널은 인터랙티브 가능)
+
+---
+
+## 진행 흐름 (release.sh 내부)
 
 ```
-dist/
-├── FlipMD_1.3.11_aarch64.app.tar.gz
-├── FlipMD_1.3.11_aarch64.app.tar.gz.minisig
-├── FlipMD_1.3.11_x64-setup.nsis.zip
-├── FlipMD_1.3.11_x64-setup.nsis.zip.minisig
-└── latest.json
+1. wails build darwin/arm64 + ldflags appVersion=X.Y.Z
+2. iconfile.icns override (build/darwin/icon.icns → .app/Contents/Resources)
+3. codesign (Developer ID Application: YONGSUB LEE)
+4. tar -czf FlipMD_X.Y.Z_aarch64.app.tar.gz
+5. tauri signer sign → .sig → .minisig
+6. wails build windows/amd64 -nsis
+7. zip (installer .exe → FlipMD_X.Y.Z_x64-setup.nsis.zip)
+8. tauri signer + .minisig
+9. zip (portable .exe → FlipMD_X.Y.Z_x64-portable.zip)
+10. tauri signer + .minisig
+11. latest.json 생성 (3 platforms: darwin-aarch64, windows-x86_64, windows-x86_64-portable)
+12. gh release create + 7개 자산 upload
 ```
 
 ---
 
-## latest.json 형식
+## latest.json 구조
 
 ```json
 {
   "version": "1.3.11",
-  "notes": "버그 수정 및 안정성 개선",
-  "pub_date": "2026-05-27T11:00:00Z",
+  "notes": "...",
+  "pub_date": "2026-05-27T09:30:00Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "<base64(.minisig 파일 내용)>",
+      "signature": "<base64 wrap of .minisig 내용>",
       "url": "https://github.com/leonardo204/flipbookMaker-go/releases/download/v1.3.11/FlipMD_1.3.11_aarch64.app.tar.gz"
     },
     "windows-x86_64": {
-      "signature": "<base64(.minisig 파일 내용)>",
-      "url": "https://github.com/leonardo204/flipbookMaker-go/releases/download/v1.3.11/FlipMD_1.3.11_x64-setup.nsis.zip"
+      "signature": "...",
+      "url": ".../FlipMD_1.3.11_x64-setup.nsis.zip"
+    },
+    "windows-x86_64-portable": {
+      "signature": "...",
+      "url": ".../FlipMD_1.3.11_x64-portable.zip"
     }
   }
 }
 ```
 
-`internal/updater/manifest.go`가 이 JSON을 파싱하고, `verify.go`가 base64 wrapping을 풀어 minisign 검증합니다.
+`internal/updater/verify.go`가 base64 wrap을 풀고 minisign Ed25519 검증.
 
 ---
 
-## 클라이언트 업데이트 흐름
+## 클라이언트 자동 업데이트 흐름
 
-1. **CheckUpdate** (`app.go`)
-   - `updaterEndpoint`의 `latest.json` 다운로드
-   - 현 버전과 비교, 새 버전이면 `pendingUpdate` 캐시
-2. **DownloadAndInstallUpdate**
-   - 플랫폼 자산 (`.app.tar.gz` 또는 `.nsis.zip`) 다운로드
-   - minisign Ed25519 서명 검증
-   - 임시 디렉터리에 압축 해제
-   - `SwapAndRelaunch(dir)` 호출
-     - **macOS**: detached shell helper가 `ditto`로 `.app` 교체 후 `open`으로 재시작
-     - **Windows**: NSIS 인스톨러를 `/S` silent로 spawn — 인스톨러가 `${INSTDIR}\FlipMD.exe`를 자동 재실행
+| 단계 | macOS | Windows installer | Windows portable |
+|------|-------|-------------------|------------------|
+| 1. CheckUpdate | `latest.json` 다운로드 → 버전 비교 | 동일 | 동일 |
+| 2. 자산 fetch | `.app.tar.gz` | `.nsis.zip` | `.zip` |
+| 3. 검증 | minisign Ed25519 (`updaterPubKey` 상수) | 동일 | 동일 |
+| 4. 추출 | temp dir에 풀기 | 동일 | 동일 |
+| 5. 적용 | shell helper로 `ditto` 스왑 → `open` 재시작 | NSIS `/S` silent → 자동 launch | PowerShell helper로 .exe 교체 → 재시작 |
+
+플랫폼 자동 판정: `internal/updater/manifest.go`의 `IsPortable()` (실행 위치가 `%ProgramFiles%` 하위인지).
+
+---
+
+## 실 검증 시나리오
+
+1. 이전 버전 빌드 보관:
+   ```sh
+   wails build -platform darwin/arm64 -ldflags "-X main.appVersion=1.3.10"
+   codesign --force --deep --options runtime --sign "Developer ID Application: YONGSUB LEE (XU8HS9JUTS)" build/bin/FlipMD.app
+   cp -r build/bin/FlipMD.app /tmp/FlipMD-1.3.10.app
+   ```
+2. 새 버전 발행 (위 한 줄 명령으로 1.3.11)
+3. 이전 버전 실행:
+   ```sh
+   open /tmp/FlipMD-1.3.10.app
+   ```
+4. 설정 페이지 → "업데이트 확인" → 1.3.11 발견 → 다운로드/검증/적용 → 자동 재시작 후 1.3.11
 
 ---
 
@@ -105,30 +153,30 @@ dist/
 
 | 증상 | 원인 / 해결 |
 |------|------------|
-| `pubkey 길이가 비정상` | `main.go`의 `updaterPubKey` 값이 minisign pubkey block과 불일치. 키쌍 확인. |
-| `Ed25519 서명 검증 실패` | release 시 사용한 비밀키가 클라이언트의 pubkey와 다른 키쌍. |
-| `.app 번들 안에서 실행 중이 아닙니다` | macOS 자동 업데이트는 `.app` 안에서 실행 시에만 동작. `wails dev`로 띄운 raw binary는 미지원. |
-| NSIS 인스톨러가 자동 실행 안 됨 | `project.nsi`의 `${If} ${Silent} ... Exec` 블록 확인. silent (/S) 모드에서만 자동 launch. |
-| macOS 자산 첫 실행 시 "확인되지 않은 개발자" | 코드사인 후 `xcrun notarytool submit`으로 노타라이즈 + staple 필요. release 파이프라인 외부 단계. |
+| `MINISIGN_PASSWORD 없음` | `.env` 누락. `.env.example` 참고해 생성 |
+| `tauri CLI signer를 못 찾음: ...` | flipbookMaker repo에서 `npm install` 필요. 또는 `TAURI_CLI_DIR` 환경변수로 다른 경로 지정 |
+| `Wrong password for that key` | 비밀번호 잘못. **빈 string `''` 가 정답** (Tauri 키 한정) |
+| `Missing encoded key in secret key` | `~/.tauri/flipmd.key`를 minisign / rsign2 CLI로 시도. **tauri signer를 써야 함** |
+| `gh release create failed` | `gh auth status` 확인, repo write 권한 |
+| Ed25519 서명 검증 실패 (클라이언트) | release 시 키쌍과 `main.go`의 `updaterPubKey` 상수가 다른 키. 기존 키 그대로 사용 |
+| `.app 번들 안에서 실행 중이 아닙니다` | macOS 자동 업데이트는 `.app` 안에서 실행 시에만 동작. `wails dev` raw binary 미지원 |
+| NSIS 인스톨러 자동 실행 안 됨 | `project.nsi`의 `${If} ${Silent} ... Exec` 블록 확인. silent (`/S`) 모드에서만 자동 launch |
 
 ---
 
-## 노타라이즈 (선택)
+## 노타라이즈 (선택, 정식 배포 시 권장)
 
-자동 업데이트 자체는 노타라이즈 없이도 동작하지만, **첫 설치 시 사용자가 직접 우클릭 → 열기**로 Gatekeeper를 우회해야 합니다. 정식 배포에는 노타라이즈 권장.
+자동 업데이트 자체는 노타라이즈 없이도 동작하지만, **첫 설치 시 사용자가 우클릭 → 열기**로 Gatekeeper 우회해야 합니다. 정식 배포에는:
 
 ```sh
-# 사전: Apple ID app-specific password를 keychain에 등록
+# 1회 등록
 xcrun notarytool store-credentials FLIPMD_NOTARY \
   --apple-id you@example.com \
   --team-id XU8HS9JUTS \
   --password "xxxx-xxxx-xxxx-xxxx"
 
 # release.sh 완료 후
-xcrun notarytool submit dist/FlipMD_1.3.11_aarch64.app.tar.gz \
+xcrun notarytool submit dist/FlipMD_X.Y.Z_aarch64.app.tar.gz \
   --keychain-profile FLIPMD_NOTARY --wait
-
-# .app에 staple (tar.gz 안의 .app은 풀어서 staple 후 다시 압축)
+# stapler 단계는 .app 풀어서 staple 후 재압축 — 별도 스크립트 권장
 ```
-
-> 자동화는 별도 스크립트 (`scripts/notarize.sh`)로 분리 권장.
