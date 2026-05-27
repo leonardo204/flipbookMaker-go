@@ -17,11 +17,11 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-// Tauri 시절 release pipeline을 그대로 재사용 — leonardo204/flipbookMaker GitHub
-// Releases에 올라가는 latest.json + minisign 서명을 검증한다. release flow가
-// 따로 분리되면 두 값을 갱신하면 된다.
+// 자동 업데이트는 leonardo204/flipbookMaker-go GitHub Releases에서 발행되는
+// latest.json + minisign 서명을 검증한다. minisign 키쌍은 Tauri 시절(원본
+// flipbookMaker)에 만든 것을 그대로 재사용한다 — pubkey 동일.
 var (
-	updaterEndpoint = "https://github.com/leonardo204/flipbookMaker/releases/latest/download/latest.json"
+	updaterEndpoint = "https://github.com/leonardo204/flipbookMaker-go/releases/latest/download/latest.json"
 	updaterPubKey   = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDhEMDgwMDk5NjY2ODAyQzkKUldUSkFtaG1tUUFJalhXbG1JQmhuU0l1Z2FHSFFMT3NHcndzRklDU2ljWjhkMzBmQmVUUUdnMXIK"
 )
 

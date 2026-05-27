@@ -90,7 +90,7 @@ if [[ "$SKIP_MAC" -eq 0 ]]; then
       -m "$DIST/$TAR_NAME"
 
   SIG_MAC=$(base64 -i "$DIST/${TAR_NAME}.minisig" | tr -d '\n')
-  URL_MAC="https://github.com/leonardo204/flipbookMaker/releases/download/v${VERSION}/${TAR_NAME}"
+  URL_MAC="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${TAR_NAME}"
 fi
 
 # ── 2. Windows: NSIS installer (.nsis.zip) + portable (.zip) ───────────────
@@ -125,7 +125,7 @@ if [[ "$SKIP_WIN" -eq 0 ]]; then
       -t "FlipMD ${VERSION} windows-x86_64" \
       -m "$DIST/$ZIP_NAME"
   SIG_WIN=$(base64 -i "$DIST/${ZIP_NAME}.minisig" | tr -d '\n')
-  URL_WIN="https://github.com/leonardo204/flipbookMaker/releases/download/v${VERSION}/${ZIP_NAME}"
+  URL_WIN="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${ZIP_NAME}"
 
   # --- 2b. portable 자산 (단독 .exe를 zip으로)
   ZIP_PORT="FlipMD_${VERSION}_x64-portable.zip"
@@ -139,7 +139,7 @@ if [[ "$SKIP_WIN" -eq 0 ]]; then
       -t "FlipMD ${VERSION} windows-x86_64-portable" \
       -m "$DIST/$ZIP_PORT"
   SIG_WIN_PORT=$(base64 -i "$DIST/${ZIP_PORT}.minisig" | tr -d '\n')
-  URL_WIN_PORT="https://github.com/leonardo204/flipbookMaker/releases/download/v${VERSION}/${ZIP_PORT}"
+  URL_WIN_PORT="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${ZIP_PORT}"
 fi
 
 # ── 3. latest.json (Tauri updater 포맷) ────────────────────────────────────

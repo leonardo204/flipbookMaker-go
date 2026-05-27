@@ -72,11 +72,11 @@ dist/
   "platforms": {
     "darwin-aarch64": {
       "signature": "<base64(.minisig 파일 내용)>",
-      "url": "https://github.com/leonardo204/flipbookMaker/releases/download/v1.3.11/FlipMD_1.3.11_aarch64.app.tar.gz"
+      "url": "https://github.com/leonardo204/flipbookMaker-go/releases/download/v1.3.11/FlipMD_1.3.11_aarch64.app.tar.gz"
     },
     "windows-x86_64": {
       "signature": "<base64(.minisig 파일 내용)>",
-      "url": "https://github.com/leonardo204/flipbookMaker/releases/download/v1.3.11/FlipMD_1.3.11_x64-setup.nsis.zip"
+      "url": "https://github.com/leonardo204/flipbookMaker-go/releases/download/v1.3.11/FlipMD_1.3.11_x64-setup.nsis.zip"
     }
   }
 }
