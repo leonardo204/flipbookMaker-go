@@ -62,6 +62,13 @@ if [[ "$SKIP_MAC" -eq 0 ]]; then
     -platform darwin/arm64 \
     -ldflags "-X main.appVersion=${VERSION}"
 
+  # Wails는 appicon.png에서 .icns를 자동 생성하지만 단일 해상도라 Dock에서
+  # 흐릿하다. flipbookMaker의 multi-resolution .icns가 있으면 덮어쓴다.
+  if [[ -f "$ROOT/build/darwin/icon.icns" ]]; then
+    log "[macOS] override iconfile.icns with build/darwin/icon.icns"
+    cp "$ROOT/build/darwin/icon.icns" "$BIN/FlipMD.app/Contents/Resources/iconfile.icns"
+  fi
+
   if [[ -n "${APPLE_SIGNING_IDENTITY:-}" ]]; then
     log "[macOS] codesign $APPLE_SIGNING_IDENTITY"
     codesign --force --deep --options runtime \
