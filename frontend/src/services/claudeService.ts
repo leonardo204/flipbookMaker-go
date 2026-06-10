@@ -12,15 +12,17 @@ interface ClaudePrintResult {
   success: boolean;
   stdout: string;
   stderr: string;
-  exit_code: number | null;
-  elapsed_ms: number;
+  // Wails Go 바인딩의 json 태그(camelCase)와 일치해야 함. snake_case로 두면
+  // 런타임에 undefined → "exit undefined, NaN초"로 표기되는 버그 발생.
+  exitCode: number | null;
+  elapsedMs: number;
 }
 
 /**
  * 외부에서 재사용 가능한 에러 분류 (claudeSession에서도 호출).
  */
 export function classifyClaudeErrorPublic(
-  result: { stdout: string; stderr: string; exit_code: number | null; elapsed_ms: number },
+  result: { stdout: string; stderr: string; exitCode: number | null; elapsedMs: number },
   context: string = "",
 ): string {
   return classifyClaudeError(result as ClaudePrintResult, context);
@@ -40,7 +42,7 @@ export function classifyClaudeErrorPublic(
  * - terminal_reason: "permission_denied" → 권한 문제
  */
 function classifyClaudeError(result: ClaudePrintResult, pageName: string): string {
-  const elapsed = result.elapsed_ms;
+  const elapsed = result.elapsedMs;
   const stdout = result.stdout || "";
   const stderr = result.stderr || "";
 
@@ -130,9 +132,9 @@ function classifyClaudeError(result: ClaudePrintResult, pageName: string): strin
     return `Claude stderr: ${stderr.trim().slice(0, 500)}`;
   }
   if (stdout.trim()) {
-    return `Claude 비정상 종료 (exit ${result.exit_code}, ${(elapsed / 1000).toFixed(1)}초)\n출력 끝부분: ${stdout.trim().slice(-300)}`;
+    return `Claude 비정상 종료 (exit ${result.exitCode}, ${(elapsed / 1000).toFixed(1)}초)\n출력 끝부분: ${stdout.trim().slice(-300)}`;
   }
-  return `Claude exit ${result.exit_code} — 출력 없음 (${(elapsed / 1000).toFixed(1)}초)`;
+  return `Claude exit ${result.exitCode} — 출력 없음 (${(elapsed / 1000).toFixed(1)}초)`;
 }
 
 function formatBytes(n: number): string {
@@ -339,15 +341,22 @@ ${headerTemplate}
 }
 
 /**
- * 이미지 수에 비례한 동적 timeout 계산 (밀리초).
- * 기본 5분 + 이미지당 20초 추가. 메타만 있는 경우 5분.
- * 32 images → 5분 + 640초 ≈ 약 16분.
- * 36 images → 5분 + 720초 ≈ 약 17분.
+ * 동적 timeout 계산 (밀리초).
+ * 기본 5분 + 이미지당 20초 + 메타 50KB당 20초.
+ *
+ * 메타만 있는 섹션(이미지 0개)도 Figma 노드 트리(textContent)가 크면
+ * 입력/출력 토큰이 많아 5분을 넘긴다 (01.Common.md가 base 300초에 timeout).
+ * 따라서 메타 바이트도 가산한다. 무한 대기 방지를 위해 25분 상한.
+ *
+ * 예) 이미지 32 + 메타 200KB → 5분 + 640초 + 80초 ≈ 약 17분.
+ *     이미지 0 + 메타 600KB → 5분 + 0 + 240초 ≈ 약 9분.
  */
-function calculateTimeout(imageCount: number): number {
+function calculateTimeout(imageCount: number, metaBytes: number = 0): number {
   const baseMs = 300_000;
   const perImageMs = 20_000;
-  return baseMs + imageCount * perImageMs;
+  const perMetaMs = Math.floor(metaBytes / 50_000) * 20_000;
+  const capMs = 1_500_000; // 25분 상한
+  return Math.min(baseMs + imageCount * perImageMs + perMetaMs, capMs);
 }
 
 export async function generateMarkdown(
@@ -362,12 +371,12 @@ export async function generateMarkdown(
   imagePaths: string[] = [],
 ): Promise<MarkdownResult> {
   const outputPath = `${outputDir}/${pageSlug}.md`;
-  const timeoutMs = calculateTimeout(imagePaths.length);
+  const timeoutMs = calculateTimeout(imagePaths.length, textContent.length);
 
   const sessionConnected = claudeSession.isConnected();
   console.log(
     `[claudeService] session=${sessionConnected ? "connected" : claudeSession.getStatus()}, ` +
-    `page=${pageName}, doc="${documentName}", images=${imagePaths.length}, timeout=${Math.round(timeoutMs / 1000)}s`,
+    `page=${pageName}, doc="${documentName}", images=${imagePaths.length}, meta=${Math.round(textContent.length / 1024)}KB, timeout=${Math.round(timeoutMs / 1000)}s`,
   );
 
   if (sessionConnected) {
@@ -435,9 +444,9 @@ async function generateMarkdownFallback(
     imagePaths,
   );
 
-  const timeoutSecs = Math.ceil(calculateTimeout(imagePaths.length) / 1000);
+  const timeoutSecs = Math.ceil(calculateTimeout(imagePaths.length, textContent.length) / 1000);
   console.log(
-    `[claudeService] fallback prompt size: ${prompt.length} bytes, timeout=${timeoutSecs}s for ${pageName}`,
+    `[claudeService] fallback prompt size: ${prompt.length} bytes, meta=${Math.round(textContent.length / 1024)}KB, timeout=${timeoutSecs}s for ${pageName}`,
   );
 
   try {
@@ -451,14 +460,14 @@ async function generateMarkdownFallback(
 
     if (result.success) {
       console.log(
-        `[claudeService] fallback success for ${pageName} (${result.elapsed_ms}ms, exit ${result.exit_code})`,
+        `[claudeService] fallback success for ${pageName} (${result.elapsedMs}ms, exit ${result.exitCode})`,
       );
       return { pageName, outputPath, success: true };
     }
 
     // 실패 시 stdout/stderr 둘 다 풀 로깅 (진단용)
     console.error(
-      `[claudeService] fallback FAILED for ${pageName} (${result.elapsed_ms}ms, exit ${result.exit_code})`,
+      `[claudeService] fallback FAILED for ${pageName} (${result.elapsedMs}ms, exit ${result.exitCode})`,
     );
     console.error(`[claudeService] stderr (${result.stderr.length} bytes):`, result.stderr || "(empty)");
     console.error(`[claudeService] stdout tail:`, result.stdout.slice(-500) || "(empty)");

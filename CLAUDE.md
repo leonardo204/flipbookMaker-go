@@ -57,7 +57,7 @@
 - Figma `/v1/images` rate limit: 5req/min (Pro 6). 32+ ID 한 번에 보내면 400 → `IMAGE_BATCH_MAX=10` 청크 분할
 - 이미지 `scale=1` 고정 (Anthropic API 이미지 합산 한도 ~20MB)
 - 섹션마다 새 Claude 세션 + stdin 기반 spawn (argv overflow 회피)
-- 동적 timeout: 300s + 20s × image_count
+- 동적 timeout: 300s + 20s×이미지수 + 20s×(메타 50KB 단위) — 25분 상한. 메타만 큰 섹션도 timeout 방지
 
 ---
 

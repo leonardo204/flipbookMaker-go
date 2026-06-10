@@ -355,6 +355,7 @@ export default function ConvertPage() {
    * @returns true = 성공, false = 실패 (호출자가 progress/state 갱신)
    */
   const processOnePage = async (page: typeof pages[number]): Promise<boolean> => {
+   try {
     const claudePath = settings.claudePath || "claude";
     const isFigma = workflow.sourceType === "figma";
     const fileKey = isFigma ? extractFileKey(workflow.url) : null;
@@ -474,6 +475,18 @@ export default function ConvertPage() {
       setPageErrors((prev) => ({ ...prev, [page.name]: result.error || "알 수 없는 오류" }));
       return false;
     }
+   } catch (e) {
+      // try 바깥에서 던지던 예외(buildPrompt/substatus 등)가 파이프라인 전체를
+      // freeze시키던 버그 방어 — 어떤 throw든 해당 섹션만 error로 처리하고,
+      // 진짜 원인 메시지를 화면에 노출한다.
+      console.error(`[ConvertPage] processOnePage 미처리 예외 "${page.name}":`, e);
+      updatePageStatus(page.name, "error");
+      setPageErrors((prev) => ({
+        ...prev,
+        [page.name]: `처리 중 예외: ${e instanceof Error ? (e.stack || e.message) : String(e)}`,
+      }));
+      return false;
+   }
   };
 
   /**

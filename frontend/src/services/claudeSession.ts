@@ -8,8 +8,9 @@ interface ClaudePrintResult {
   success: boolean;
   stdout: string;
   stderr: string;
-  exit_code: number | null;
-  elapsed_ms: number;
+  // Wails Go 바인딩의 json 태그(camelCase)와 일치해야 함.
+  exitCode: number | null;
+  elapsedMs: number;
 }
 
 /**
@@ -101,7 +102,7 @@ class ClaudeSession {
 
     if (!result.success) {
       console.error(
-        `[claudeSession] FAILED exit=${result.exit_code} elapsed=${result.elapsed_ms}ms`,
+        `[claudeSession] FAILED exit=${result.exitCode} elapsed=${result.elapsedMs}ms`,
       );
       console.error(
         `[claudeSession] stderr (${result.stderr.length} bytes):`,

@@ -4,11 +4,13 @@ package claudecli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"os/exec"
+	"strings"
 	"time"
 
 	"flipmd-go/internal/nodepath"
@@ -111,6 +113,15 @@ func Print(ctx context.Context, req Request) (Result, error) {
 
 	stdout := stdoutBuf.String()
 	stderr := stderrBuf.String()
+
+	// Claude Code CLI는 작업을 정상 완료(terminal_reason: completed)하고도 exit
+	// code가 0이 아닌 채로 끝나는 경우가 있다. 이때 stdout의 result JSON이
+	// completed면 성공으로 보정한다 (없으면 정상 결과가 "비정상 종료"로 오표기됨).
+	if !success && completedOK(stdout) {
+		log.Printf("[claude_print] exit=%d 이지만 terminal_reason=completed → success 보정", exitCode)
+		success = true
+	}
+
 	log.Printf("[claude_print] done success=%v exit=%d elapsed=%dms stdout=%dB stderr=%dB",
 		success, exitCode, elapsed, len(stdout), len(stderr))
 
@@ -121,4 +132,31 @@ func Print(ctx context.Context, req Request) (Result, error) {
 		ExitCode:  exitCode,
 		ElapsedMs: elapsed,
 	}, nil
+}
+
+// completedOK는 claude --output-format json의 stdout이 정상 완료
+// (terminal_reason: completed, is_error: false)를 나타내는지 검사한다.
+// result JSON은 단일 객체이지만, 안전하게 마지막 줄을 우선 파싱한다.
+func completedOK(stdout string) bool {
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed == "" {
+		return false
+	}
+	if idx := strings.LastIndexByte(trimmed, '\n'); idx >= 0 {
+		if reasonCompleted(strings.TrimSpace(trimmed[idx+1:])) {
+			return true
+		}
+	}
+	return reasonCompleted(trimmed)
+}
+
+func reasonCompleted(s string) bool {
+	var obj struct {
+		TerminalReason string `json:"terminal_reason"`
+		IsError        bool   `json:"is_error"`
+	}
+	if err := json.Unmarshal([]byte(s), &obj); err != nil {
+		return false
+	}
+	return obj.TerminalReason == "completed" && !obj.IsError
 }
