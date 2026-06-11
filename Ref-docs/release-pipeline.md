@@ -74,6 +74,26 @@ cd /Users/zerolive/work/flipbookMaker && \
 
 `!` prefix로 실행되는 bash는 stdin 없음. `read -sp`는 EOF로 즉시 종료. → `.env` 자동 로드가 유일한 자동화 길. (외부 터미널은 인터랙티브 가능)
 
+### 함정 6 — `latest.json` signature 이중 base64 wrap (v1.3.13에서 발견·수정)
+
+**증상**: 앱 설정에서 "업데이트 가능"까지는 뜨는데 [업데이트] 클릭 시 **"확인 실패"**. CheckUpdate(버전 비교)는 성공, DownloadAndInstall의 서명 검증 단계에서 실패.
+
+**근본 원인**: Tauri signer가 만든 `.minisig` 파일은 **이미** `base64(minisign텍스트)` 형식(= verify.go가 기대하는 1중 wrap). 그런데 release.sh가 이걸 `base64 -i`로 **한 번 더** 인코딩해 `latest.json`에 넣어 **2중 wrap**이 됨. `internal/updater/verify.go`의 `parseSignature`는 base64를 **딱 1번만** 풀기 때문에, 2중 wrap을 풀면 또 base64 한 줄이 나와 `"signature 본문이 너무 짧습니다"`로 검증 실패.
+
+> ⚠️ 이 버그는 v1.3.11부터 잠복해 있었음. 자동 업데이트를 **실제로 적용(클릭)** 한 게 v1.3.13이 처음이라 그때 발견됨. "실 검증 시나리오"는 절차 안내였을 뿐 실제 적용 테스트는 안 됐던 것.
+
+**올바른 형식**: `latest.json`의 `signature` = `.minisig` 파일 내용 **그대로** (1중 wrap). release.sh가 `tr -d '\n' < "$DIST/X.minisig"`로 넣음 (`base64 -i` 금지). → 수정 완료(release.sh:144/174/183).
+
+**검증 방법** (latest.json signature를 1번 디코드 → 4줄이어야 정상):
+```sh
+curl -sL https://github.com/leonardo204/flipbookMaker-go/releases/latest/download/latest.json \
+  | python3 -c 'import json,sys,base64; m=json.load(sys.stdin); \
+print({k: len(base64.b64decode(p["signature"]).decode("utf-8","replace").strip().splitlines()) for k,p in m["platforms"].items()})'
+# 모든 플랫폼이 4 이면 정상(1중 wrap). 1 이면 이중 wrap 버그.
+```
+
+**기존 배포 앱 핫픽스**: 이 버그는 `latest.json`만 고쳐 `gh release upload <tag> latest.json --clobber` 하면 **앱 재빌드 없이** 해결됨 (기존 앱의 verify.go가 그대로 검증 통과). 자산(tar.gz/zip)·minisig는 손대지 않음.
+
 ---
 
 ## 진행 흐름 (release.sh 내부)
@@ -107,7 +127,7 @@ cd /Users/zerolive/work/flipbookMaker && \
   "pub_date": "2026-05-27T09:30:00Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "<base64 wrap of .minisig 내용>",
+      "signature": "<.minisig 파일 내용 그대로 = base64(minisign텍스트), 1중 wrap. ⚠️ 추가 base64 금지 — 함정 6>",
       "url": "https://github.com/leonardo204/flipbookMaker-go/releases/download/v1.3.11/FlipMD_1.3.11_aarch64.app.tar.gz"
     },
     "windows-x86_64": {
@@ -122,7 +142,7 @@ cd /Users/zerolive/work/flipbookMaker && \
 }
 ```
 
-`internal/updater/verify.go`가 base64 wrap을 풀고 minisign Ed25519 검증.
+`internal/updater/verify.go`가 base64 wrap을 **1단계** 풀고 minisign Ed25519 검증. signature가 2중 wrap이면 검증 실패(→ 함정 6).
 
 ---
 
@@ -167,6 +187,7 @@ cd /Users/zerolive/work/flipbookMaker && \
 | `Missing encoded key in secret key` | `~/.tauri/flipmd.key`를 minisign / rsign2 CLI로 시도. **tauri signer를 써야 함** |
 | `gh release create failed` | `gh auth status` 확인, repo write 권한 |
 | Ed25519 서명 검증 실패 (클라이언트) | release 시 키쌍과 `main.go`의 `updaterPubKey` 상수가 다른 키. 기존 키 그대로 사용 |
+| 업데이트 클릭 시 **"확인 실패"** / `signature 본문이 너무 짧습니다` | `latest.json` signature **이중 base64 wrap** → **함정 6** 참고. `latest.json`만 고쳐 `--clobber` 재업로드(앱 재빌드 불필요) |
 | `.app 번들 안에서 실행 중이 아닙니다` | macOS 자동 업데이트는 `.app` 안에서 실행 시에만 동작. `wails dev` raw binary 미지원 |
 | NSIS 인스톨러 자동 실행 안 됨 | `project.nsi`의 `${If} ${Silent} ... Exec` 블록 확인. silent (`/S`) 모드에서만 자동 launch |
 

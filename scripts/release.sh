@@ -26,10 +26,11 @@ die() { printf "\033[1;31m✗\033[0m %s\n" "$*" >&2; exit 1; }
 # minisign / rsign2 CLI에서 못 읽는다. Tauri CLI signer가 이 형식을
 # 그대로 처리하므로 release flow는 tauri signer를 사용한다.
 #
-# 산출물은 `<file>.sig` (minisign 형식의 표준 .sig). 호출자가 base64로
-# wrap해 latest.json에 넣을 때 우리 verify.go가 base64 한 단계를 풀고
-# 처리하므로 호환된다. 기존 코드와의 호환을 위해 `.sig`를 `.minisig`로
-# rename.
+# 산출물 `<file>.sig`는 Tauri signer 출력 = base64(minisign텍스트) 형식.
+# 이 내용을 latest.json signature에 **그대로** 넣어야 한다(1중 wrap).
+# verify.go가 base64 한 단계를 풀면 minisign 텍스트가 나오기 때문.
+# (과거 여기서 base64로 한 번 더 wrap해 이중 wrap → 검증 실패 버그가 있었음.)
+# 기존 코드와의 호환을 위해 `.sig`를 `.minisig`로 rename.
 TAURI_CLI_DIR="${TAURI_CLI_DIR:-/Users/zerolive/work/flipbookMaker}"
 
 sign_minisign() {
@@ -141,7 +142,9 @@ if [[ "$SKIP_MAC" -eq 0 ]]; then
   log "[macOS] minisign sign"
   sign_minisign "$DIST/$TAR_NAME" "FlipMD ${VERSION} darwin-aarch64"
 
-  SIG_MAC=$(base64 -i "$DIST/${TAR_NAME}.minisig" | tr -d '\n')
+  # .minisig는 이미 base64(minisign텍스트) 형식(Tauri signer 출력) = verify.go가
+  # 기대하는 1중 wrap. 추가 base64 인코딩 금지(이중 wrap → 검증 실패).
+  SIG_MAC=$(tr -d '\n' < "$DIST/${TAR_NAME}.minisig")
   URL_MAC="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${TAR_NAME}"
 fi
 
@@ -171,7 +174,7 @@ if [[ "$SKIP_WIN" -eq 0 ]]; then
   ( cd "$BIN" && zip -j -q "$DIST/$ZIP_NAME" "$(basename "$INSTALLER")" )
   log "[Windows] minisign sign (installer)"
   sign_minisign "$DIST/$ZIP_NAME" "FlipMD ${VERSION} windows-x86_64"
-  SIG_WIN=$(base64 -i "$DIST/${ZIP_NAME}.minisig" | tr -d '\n')
+  SIG_WIN=$(tr -d '\n' < "$DIST/${ZIP_NAME}.minisig")
   URL_WIN="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${ZIP_NAME}"
 
   # --- 2b. portable 자산 (단독 .exe를 zip으로)
@@ -180,7 +183,7 @@ if [[ "$SKIP_WIN" -eq 0 ]]; then
   ( cd "$BIN" && zip -j -q "$DIST/$ZIP_PORT" "FlipMD.exe" )
   log "[Windows] minisign sign (portable)"
   sign_minisign "$DIST/$ZIP_PORT" "FlipMD ${VERSION} windows-x86_64-portable"
-  SIG_WIN_PORT=$(base64 -i "$DIST/${ZIP_PORT}.minisig" | tr -d '\n')
+  SIG_WIN_PORT=$(tr -d '\n' < "$DIST/${ZIP_PORT}.minisig")
   URL_WIN_PORT="https://github.com/leonardo204/flipbookMaker-go/releases/download/v${VERSION}/${ZIP_PORT}"
 fi
 
