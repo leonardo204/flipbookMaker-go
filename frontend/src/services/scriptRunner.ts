@@ -134,12 +134,15 @@ export async function runCrawl(
   outputDir: string,
   onProgress?: ProgressCallback,
 ): Promise<void> {
-  // 1. .app 안 scripts 디렉토리 절대 경로 해석.
-  // Tauri는 tauri.conf.json의 resources에 `..`가 포함된 경로를 자동으로
-  // `_up_/` 서브디렉토리로 escape함. dev/release에 따라 위치가 다르므로 후보 순회.
+  // 1. crawl.mjs 절대 경로 해석.
+  // Wails 포팅: Go의 internal/scripts/embed.go가 embed.FS(`assets/*`)를 임시
+  // 디렉토리에 풀 때 `assets` prefix를 벗겨 `extractDir/crawl.mjs`(루트)에 둔다.
+  // ResolveResource(name)은 extractDir와 join하므로 name은 `crawl.mjs`여야 한다.
+  // 뒤 두 후보는 구 Tauri resource 레이아웃(`..`→`_up_/` escape) 하위 호환용 fallback.
   const candidates = [
-    "_up_/scripts/crawl.mjs", // release .app: Resources/_up_/scripts/crawl.mjs
-    "scripts/crawl.mjs",      // dev 또는 일반적인 resource layout
+    "crawl.mjs",              // Wails: extractDir/crawl.mjs (실제 embed 레이아웃)
+    "_up_/scripts/crawl.mjs", // 레거시 Tauri .app: Resources/_up_/scripts/crawl.mjs
+    "scripts/crawl.mjs",      // 레거시 dev resource layout
   ];
   let scriptPath: string | null = null;
   const tried: string[] = [];
