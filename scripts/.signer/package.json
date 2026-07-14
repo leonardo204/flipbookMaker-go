@@ -1,0 +1,9 @@
+{
+  "name": "flipmd-signer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Repo-local vendored Tauri CLI used only to minisign release artifacts. Replaces the former external dependency on ../flipbookMaker so releases don't break when that repo is absent.",
+  "dependencies": {
+    "@tauri-apps/cli": "2.9.6"
+  }
+}

@@ -37,3 +37,8 @@ dist/
 .idea/
 .vscode/
 *.swp
+.claude/.cost_state
+
+# Vendored release signer deps (installed on demand)
+scripts/.signer/node_modules/
+scripts/.signer/package-lock.json

@@ -31,13 +31,25 @@ die() { printf "\033[1;31m✗\033[0m %s\n" "$*" >&2; exit 1; }
 # verify.go가 base64 한 단계를 풀면 minisign 텍스트가 나오기 때문.
 # (과거 여기서 base64로 한 번 더 wrap해 이중 wrap → 검증 실패 버그가 있었음.)
 # 기존 코드와의 호환을 위해 `.sig`를 `.minisig`로 rename.
-TAURI_CLI_DIR="${TAURI_CLI_DIR:-/Users/zerolive/work/flipbookMaker}"
+#
+# signer는 repo 내부 scripts/.signer에 vendor한다(package.json으로 버전 고정).
+# node_modules가 없으면 최초 1회 자동 설치. 과거엔 외부 ../flipbookMaker에
+# 의존해 그 repo가 사라지면 릴리즈가 깨졌음 — 이제 repo-local이라 재발 없음.
+# TAURI_CLI_DIR env로 여전히 override 가능(CI/다른 위치).
+TAURI_CLI_DIR="${TAURI_CLI_DIR:-$ROOT/scripts/.signer}"
 
 sign_minisign() {
   local file="$1"
   local _trusted="$2"  # tauri signer는 trusted comment 인자 미지원 — 무시
-  [[ -d "$TAURI_CLI_DIR/node_modules/@tauri-apps/cli" ]] || \
-    die "tauri CLI signer를 못 찾음: $TAURI_CLI_DIR (TAURI_CLI_DIR로 경로 지정)"
+  if [[ ! -d "$TAURI_CLI_DIR/node_modules/@tauri-apps/cli" ]]; then
+    if [[ -f "$TAURI_CLI_DIR/package.json" ]]; then
+      log "[signer] node_modules 없음 → npm install ($TAURI_CLI_DIR)"
+      ( cd "$TAURI_CLI_DIR" && npm install --no-audit --no-fund ) \
+        || die "signer npm install 실패: $TAURI_CLI_DIR"
+    fi
+    [[ -d "$TAURI_CLI_DIR/node_modules/@tauri-apps/cli" ]] || \
+      die "tauri CLI signer를 못 찾음: $TAURI_CLI_DIR (TAURI_CLI_DIR로 경로 지정)"
+  fi
   local out
   out=$(
     cd "$TAURI_CLI_DIR" && \

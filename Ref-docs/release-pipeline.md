@@ -27,7 +27,7 @@ cd /Users/zerolive/work/flipMd-Go && \
 | Wails CLI v2.12+ | `wails version` | `go install github.com/wailsapp/wails/v2/cmd/wails@latest` |
 | `makensis` (Windows 빌드용) | `which makensis` | `brew install makensis` |
 | `gh` CLI 인증 | `gh auth status` | `gh auth login` |
-| **Tauri CLI (`tauri signer`)** | `ls /Users/zerolive/work/flipbookMaker/node_modules/@tauri-apps/cli` | flipbookMaker repo에 `npm install` |
+| **Tauri CLI (`tauri signer`)** | `ls scripts/.signer/node_modules/@tauri-apps/cli` | 자동 설치됨(없으면 release.sh가 `npm install`). repo-local vendor |
 | **Tauri 시절 minisign 키** | `ls ~/.tauri/flipmd.key*` | (보관 중) |
 | **`.env` 파일** | `cat .env` | 아래 내용으로 작성 |
 
@@ -49,7 +49,7 @@ app-specific password 발급: https://appleid.apple.com → 로그인 및 보안
 
 `~/.tauri/flipmd.key`는 base64로 한 번 더 wrap된 **rsign 형식**이라 표준 `minisign` / `rsign2` CLI에서 `"Missing encoded key in secret key"` 또는 `"Wrong password for that key"` 오류 발생.
 
-**해결**: `scripts/release.sh`가 `tauri signer` (flipbookMaker의 `node_modules/@tauri-apps/cli`) 호출. 이미 작성 완료 — 다른 도구 시도 금지.
+**해결**: `scripts/release.sh`가 `tauri signer` (repo-local `scripts/.signer/node_modules/@tauri-apps/cli`, 버전 고정) 호출. node_modules 없으면 자동 `npm install`. 이미 작성 완료 — 다른 도구 시도 금지. (과거 외부 `../flipbookMaker`에 의존했으나 그 repo 삭제로 릴리즈가 깨져 vendor로 이관 — v1.3.14)
 
 ### 함정 2 — 비밀번호는 **빈 string**
 
@@ -57,7 +57,7 @@ app-specific password 발급: https://appleid.apple.com → 로그인 및 보안
 
 검증 방법:
 ```sh
-cd /Users/zerolive/work/flipbookMaker && \
+cd scripts/.signer && \
   npx tauri signer sign -f ~/.tauri/flipmd.key -p '' /tmp/dummy.txt
 # "Your file was signed successfully" 나오면 OK
 ```
@@ -182,7 +182,7 @@ print({k: len(base64.b64decode(p["signature"]).decode("utf-8","replace").strip()
 | 증상 | 원인 / 해결 |
 |------|------------|
 | `MINISIGN_PASSWORD 없음` | `.env` 누락. `.env.example` 참고해 생성 |
-| `tauri CLI signer를 못 찾음: ...` | flipbookMaker repo에서 `npm install` 필요. 또는 `TAURI_CLI_DIR` 환경변수로 다른 경로 지정 |
+| `tauri CLI signer를 못 찾음: ...` | 보통 자동 `npm install`로 해결. 실패 시 `cd scripts/.signer && npm install`. 또는 `TAURI_CLI_DIR` 환경변수로 다른 경로 지정 |
 | `Wrong password for that key` | 비밀번호 잘못. **빈 string `''` 가 정답** (Tauri 키 한정) |
 | `Missing encoded key in secret key` | `~/.tauri/flipmd.key`를 minisign / rsign2 CLI로 시도. **tauri signer를 써야 함** |
 | `gh release create failed` | `gh auth status` 확인, repo write 권한 |
