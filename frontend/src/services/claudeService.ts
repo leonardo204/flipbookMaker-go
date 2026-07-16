@@ -452,9 +452,10 @@ async function generateMarkdownFallback(
   try {
     const result = await invoke<ClaudePrintResult>("claude_print", {
       request: {
+        // Go(claudecli.Request) json 태그는 camelCase. snake_case면 미바인딩.
         prompt,
-        claude_path: claudePath || null,
-        timeout_secs: timeoutSecs,
+        claudePath: claudePath || null,
+        timeoutSecs: timeoutSecs,
       },
     });
 

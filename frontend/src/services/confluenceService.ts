@@ -42,9 +42,10 @@ export function parseConfluenceParentUrl(input: string): {
 }
 
 export interface UploadResult {
+  // Go(confluence.UploadResult) json 태그는 camelCase(pageId/pageUrl).
   success: boolean;
-  page_id: string | null;
-  page_url: string | null;
+  pageId: string | null;
+  pageUrl: string | null;
   message: string;
 }
 
@@ -450,8 +451,8 @@ export async function uploadToConfluence(
       console.log(`[uploadToConfluence] 스킵: "${file.title}" (이미 완료)`);
       onProgress(i + 1, files.length, file.title, {
         success: true,
-        page_id: null,
-        page_url: null,
+        pageId: null,
+        pageUrl: null,
         message: "이미 업로드 완료 — 스킵",
       });
       continue;
@@ -472,14 +473,16 @@ export async function uploadToConfluence(
       try {
         result = await invoke<UploadResult>("confluence_upload_page", {
           request: {
-            base_url: config.baseUrl,
+            // Go(confluence.UploadRequest) json 태그는 camelCase. snake_case로
+            // 보내면 baseUrl/spaceKey/imagePaths(필수)가 빈 값이 되어 업로드 실패.
+            baseUrl: config.baseUrl,
             email: config.email,
             token: config.token,
-            space_key: config.spaceKey,
-            parent_page_id: config.parentPageId ?? null,
+            spaceKey: config.spaceKey,
+            parentPageId: config.parentPageId ?? null,
             title: file.title,
             content,
-            image_paths: file.imagePaths,
+            imagePaths: file.imagePaths,
           },
         });
 
@@ -492,8 +495,8 @@ export async function uploadToConfluence(
         errorTrail.push(`시도 ${attempt}: ${msg}`);
         result = {
           success: false,
-          page_id: null,
-          page_url: null,
+          pageId: null,
+          pageUrl: null,
           message: msg,
         };
       }

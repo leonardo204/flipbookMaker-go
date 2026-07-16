@@ -23,6 +23,18 @@ try {
 import fs from 'fs/promises';
 import path from 'path';
 
+// slug 생성 — lib/slug.mjs / 프론트엔드 slugify와 동일 알고리즘.
+// crawl.mjs는 릴리즈 .app에서 단독 embed되므로(lib 미동봉 가능) 외부 의존 없이 인라인한다.
+// ConvertPage(Axshare 분기)가 `${outputDir}/${slugify(pageName)}.txt`를 읽으므로 반드시 일치해야 한다.
+function slugify(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[>_\s]+/g, '-')
+    .replace(/[^\w가-힣\-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
 // CLI 인자 파싱 (외부 라이브러리 없이 process.argv 직접 파싱)
 function parseArgs(argv) {
   const args = argv.slice(2);
@@ -108,14 +120,58 @@ async function main() {
 
   const total = countNodes(sitemap);
 
-  // 진행률 이벤트: 크롤링은 단일 페이지이므로 완료 직전에 progress 1/1 emit
-  emit({ event: 'progress', current: 1, total: 1, page: BASE_URL });
-
   await fs.mkdir(path.dirname(OUTPUT), { recursive: true });
   await fs.writeFile(OUTPUT, JSON.stringify(sitemap, null, 2));
 
   process.stderr.write(`Sitemap saved to ${OUTPUT}\n`);
   process.stderr.write(`Total nodes: ${total}\n`);
+
+  // ── 섹션별 텍스트 추출 ────────────────────────────────────────────
+  // 각 Wireframe 페이지(`<page>.html`)를 직접 열어 본문 innerText를 뽑아
+  // `${OUTPUT_DIR}/${slug}.txt`로 저장한다. ConvertPage의 Axshare 분기가 이 파일을
+  // 읽어 Claude에 전달한다. 이 단계가 없으면 변환 결과물이 비어버린다.
+  function flattenWireframes(nodes, acc = []) {
+    for (const n of nodes) {
+      if (n.url) acc.push({ pageName: n.pageName, url: n.url });
+      if (n.children && n.children.length) flattenWireframes(n.children, acc);
+    }
+    return acc;
+  }
+
+  const origin = new URL(BASE_URL).origin;
+  const pages = flattenWireframes(sitemap);
+  process.stderr.write(`Extracting text from ${pages.length} wireframe page(s)...\n`);
+
+  let extracted = 0;
+  for (let i = 0; i < pages.length; i++) {
+    const { pageName, url } = pages[i];
+    const slug = slugify(pageName);
+    const target = `${origin}/${url}`;
+    emit({ event: 'progress', current: i + 1, total: pages.length, page: pageName });
+
+    try {
+      await page.goto(target, { waitUntil: 'networkidle', timeout: 45000 });
+      // Axure 페이지를 직접 열면 본문이 최상위 문서에 렌더된다. 다만 일부는
+      // 하위 프레임(mainFrame)에 담기므로, 프레임 중 innerText가 가장 긴 것을 채택.
+      let best = '';
+      for (const f of page.frames()) {
+        const txt = await f
+          .evaluate(() => (document.body ? document.body.innerText : ''))
+          .catch(() => '');
+        if (txt && txt.length > best.length) best = txt;
+      }
+      // 과도한 빈 줄 정리 (3줄 이상 → 2줄)
+      const cleaned = best.replace(/\n{3,}/g, '\n\n').trim();
+      await fs.writeFile(path.join(OUTPUT_DIR, `${slug}.txt`), cleaned);
+      extracted++;
+      process.stderr.write(`  [${i + 1}/${pages.length}] ${slug}.txt (${cleaned.length} chars)\n`);
+    } catch (e) {
+      // 한 페이지 실패가 전체 크롤을 막지 않도록 방어. 빈 파일은 남기지 않음
+      // (ConvertPage가 "텍스트 파일 없음"으로 인지 → 해당 섹션만 메타 없이 진행).
+      process.stderr.write(`  [${i + 1}/${pages.length}] ${slug} FAILED: ${e.message}\n`);
+    }
+  }
+  process.stderr.write(`Text extraction done: ${extracted}/${pages.length} pages\n`);
 
   await browser.close();
 

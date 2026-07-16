@@ -93,10 +93,12 @@ class ClaudeSession {
 
     const result = await invoke<ClaudePrintResult>("claude_print", {
       request: {
+        // Go(claudecli.Request) json 태그는 camelCase. snake_case로 보내면
+        // 매칭 안 돼 빈 값 → 특히 timeoutSecs 미전달 시 동적 timeout이 무시됨.
         prompt,
-        claude_path: this.claudePath || null,
-        session_id: sessionId || null,
-        timeout_secs: timeoutSecs,
+        claudePath: this.claudePath || null,
+        sessionId: sessionId || null,
+        timeoutSecs: timeoutSecs,
       },
     });
 

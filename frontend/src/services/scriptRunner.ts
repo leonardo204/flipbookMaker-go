@@ -56,18 +56,20 @@ export async function checkPlaywrightAvailable(): Promise<{
   error?: string;
 }> {
   try {
+    // Go(app.go PlaywrightTestResult) json 태그는 camelCase(modulePath/
+    // npmGlobalRoot). Wails 바인딩은 키를 그대로 전달하므로 camelCase로 읽어야 한다.
     const result = await invoke<{
       available: boolean;
       version: string | null;
-      module_path: string | null;
-      npm_global_root: string | null;
+      modulePath: string | null;
+      npmGlobalRoot: string | null;
       error: string | null;
     }>("test_playwright_available");
     return {
       available: result.available,
       version: result.version ?? undefined,
-      modulePath: result.module_path ?? undefined,
-      npmGlobalRoot: result.npm_global_root ?? undefined,
+      modulePath: result.modulePath ?? undefined,
+      npmGlobalRoot: result.npmGlobalRoot ?? undefined,
       error: result.error ?? undefined,
     };
   } catch (err) {
@@ -98,13 +100,18 @@ async function runScript(
   });
 
   try {
-    const result = await invoke<{ exit_code: number; stderr: string }>(
+    // Go(runner.Result) json 태그는 camelCase(exitCode). Wails 바인딩은 키를
+    // 그대로 전달하므로 camelCase로 읽어야 한다. 과거 exit_code로 읽어 항상
+    // undefined → 성공(exit 0)에도 "스크립트 실패 (exit undefined)"로 오판정했음.
+    const result = await invoke<{ exitCode: number; stderr: string }>(
       "run_node_script",
       {
-        request: { script_path: scriptPath, args, env },
+        // Go(runner.Request) json 태그도 camelCase(scriptPath). snake_case로
+        // 보내면 매칭 안 돼 ScriptPath가 빈 값이 되어 node가 빈 경로로 spawn됨.
+        request: { scriptPath, args, env },
       },
     );
-    if (result.exit_code !== 0) {
+    if (result.exitCode !== 0) {
       // stderr 길이 길면 시작 1000자 + 끝 1500자 (총 ~2500자)로 양쪽 보존
       const trimmed = result.stderr.trim();
       let stderrSnippet = trimmed;
@@ -115,7 +122,7 @@ async function runScript(
           trimmed.slice(-1500);
       }
       throw new Error(
-        `스크립트 실패 (exit ${result.exit_code})${stderrSnippet ? `\n${stderrSnippet}` : ""}`,
+        `스크립트 실패 (exit ${result.exitCode})${stderrSnippet ? `\n${stderrSnippet}` : ""}`,
       );
     }
   } finally {

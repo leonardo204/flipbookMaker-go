@@ -901,11 +901,11 @@ export default function UploadPage() {
                         {PAGE_STATUS_LABELS[entry.status]}
                       </span>
 
-                      {entry.result?.success && entry.result.page_url && (
+                      {entry.result?.success && entry.result.pageUrl && (
                         <span
                           style={styles.pageUrlLink}
                           onClick={() =>
-                            openUrl(entry.result!.page_url!).catch((e) =>
+                            openUrl(entry.result!.pageUrl!).catch((e) =>
                               alert(`링크 열기 실패: ${e}`),
                             )
                           }
